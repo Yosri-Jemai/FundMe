@@ -3,24 +3,29 @@ pragma solidity 0.8.24;
 
 import {PriceConverter} from "./PriceConverter.sol";
 
+error NotOwner(address caller);
+error MinimumFundingNotMet(uint256 sent, uint256 required);
+error WithdrawFailed(uint256 balanceAttempted);
 
 contract FundMe {
     using PriceConverter for uint256;
 
-    uint256 public minUSD = 5e18;
+    uint256 public constant MINIMUM_USD = 5e18;
 
     address[] funders;
     mapping (address funder => uint256 amountFunded) public addressToAmountFunded;
 
-    address public owner;
+    address public immutable i_owner;
 
     // Executed only once at deployment
     constructor(){
-        owner = msg.sender;
+        i_owner = msg.sender;
     }
 
     function fund() public payable {
-        require(msg.value.getConvertionRate() >= minUSD, "Minimum funding amount not met");
+        uint256 amountToFund = msg.value.getConvertionRate();
+        if (amountToFund < MINIMUM_USD) 
+            revert MinimumFundingNotMet(amountToFund, MINIMUM_USD);
         addressToAmountFunded[msg.sender] += msg.value;
     }
 
@@ -31,12 +36,20 @@ contract FundMe {
         }
         funders = new address[](0);
         (bool callSuccess, ) = payable(msg.sender).call{value: address(this).balance}("");
-        require(callSuccess, "Transaction failed");
+        if (!callSuccess) revert WithdrawFailed(address(this).balance);
     }
 
     modifier onlyOwner() {
-        require(msg.sender == owner, "Only owner can withdraw");
+        if (msg.sender != i_owner) revert NotOwner(msg.sender);
         _;
+    }
+
+    receive() external payable {
+        fund();
+    }
+
+    fallback() external payable {
+        fund();
     }
 
 }
