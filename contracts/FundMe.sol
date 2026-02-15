@@ -1,25 +1,42 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {AggregatorV3Interface} from "@chainlink/contracts@1.5.0/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
+import {PriceConverter} from "./PriceConverter.sol";
+
 
 contract FundMe {
+    using PriceConverter for uint256;
 
     uint256 public minUSD = 5e18;
 
+    address[] funders;
+    mapping (address funder => uint256 amountFunded) public addressToAmountFunded;
+
+    address public owner;
+
+    // Executed only once at deployment
+    constructor(){
+        owner = msg.sender;
+    }
+
     function fund() public payable {
-        require(getConvertionRate(msg.value) >= minUSD, "Minimum funding amount not met");
+        require(msg.value.getConvertionRate() >= minUSD, "Minimum funding amount not met");
+        addressToAmountFunded[msg.sender] += msg.value;
     }
 
-    function getPrice() public view returns (uint256){
-        AggregatorV3Interface priceFeed = AggregatorV3Interface(0x694AA1769357215DE4FAC081bf1f309aDC325306);
-        (,int256 price,,,) = priceFeed.latestRoundData(); // Retrieve only the price value from Chainlink (ETH/USD)
-        return uint256(price) * 1e10; 
+    function withdraw() public onlyOwner {
+        for (uint256 index = 0; index < funders.length; index++){
+            address funder = funders[index];
+            addressToAmountFunded[funder] = 0;
+        }
+        funders = new address[](0);
+        (bool callSuccess, ) = payable(msg.sender).call{value: address(this).balance}("");
+        require(callSuccess, "Transaction failed");
     }
 
-    function getConvertionRate(uint256 ethAmount) public view returns (uint256){
-        uint256 ethPrice = getPrice();
-        uint256 ethAmountInUSD = (ethPrice * ethAmount) / 1e18;
-        return ethAmountInUSD;
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only owner can withdraw");
+        _;
     }
+
 }
